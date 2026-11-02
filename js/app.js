@@ -4,7 +4,7 @@ const norm = s => (s||"").replace(/[أإآٱ]/g,"ا").replace(/[ىئ]/g,"ي").re
 const esc = s => String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const clean = s => String(s??"").replace(/\s+/g," ").trim();
 const store={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
-const BASE_SPECS=["اطفال","باطنية","نسائية","جراحة عامة","جراحة كلى","كسور"];
+const BASE_SPECS=["اطفال","باطنية","نسائية","جراحة عامة","جراحة كلى","كسور","انف واذن وحنجرة","جملة عصبية"];
 const BASE_AREAS=["شارع الاطباء","الهورة","النعمانية","الحي"];
 let toastT; function toast(m){const t=$("toast");t.textContent=m;t.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),2200)}
 
@@ -17,7 +17,8 @@ const FILLER=new Set(["دكتور","دكتوره","دكاتره","دكاتير",
 function rebuild(){
   const by=(arr,base)=>[...base.filter(b=>arr.includes(b)),...[...new Set(arr)].filter(x=>!base.includes(x)).sort((a,b)=>a.localeCompare(b,"ar"))];
   AREAS=by(DATA.map(d=>d.area).filter(Boolean),BASE_AREAS);
-  SPECS=by(DATA.map(d=>d.spec).filter(Boolean),BASE_SPECS);
+  // التخصصات الأساسية تظهر دائماً حتى لو ما بيها أطباء بعد
+  SPECS=[...BASE_SPECS,...[...new Set(DATA.map(d=>d.spec).filter(Boolean))].filter(x=>!BASE_SPECS.includes(x)).sort((a,b)=>a.localeCompare(b,"ar"))];
   PHARMS=[...new Set(DATA.map(d=>d.ph).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"ar"));
   AREA_WORDS={};
   AREAS.forEach(a=>{const n=norm(a);AREA_WORDS[n]=a;AREA_WORDS[n.replace(/^ال/,"")]=a;});
@@ -32,6 +33,8 @@ function rebuild(){
   add(["عامه","جراحه عامه"],["جراحة عامة"]);
   add(["كلي","كليه","كلى","مسالك","بوليه","جراحه كلي"],["جراحة كلى"]);
   add(["عظام","عظم","كسر","مفاصل"],["كسور"]);
+  add(["انف","اذن","اذان","حنجره","انف واذن","انف واذن وحنجره","ent"],["انف واذن وحنجرة"]);
+  add(["عصبيه","عصبي","اعصاب","جمله عصبيه","دماغ","مخ واعصاب"],["جملة عصبية"]);
   // القوائم
   const keep=(id,all,label)=>{const el=$(id),v=el.value;el.innerHTML=`<option value="">${label}</option>`+all.map(x=>`<option>${esc(x)}</option>`).join("");el.value=all.includes(v)?v:"";};
   keep("fArea",AREAS,"جميع المناطق"); keep("fSpec",SPECS,"جميع التخصصات");
