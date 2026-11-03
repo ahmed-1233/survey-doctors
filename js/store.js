@@ -1,50 +1,52 @@
 // ===== طبقة البيانات =====
-// الواجهة (app.js) ما تعرف وين تنحفظ البيانات، تتعامل بس ويا هاي الدوال:
-//   Store.init(onChange)   يحمّل الأطباء ويستدعي onChange كل ما تتغير البيانات
-//   Store.add(body)        يضيف طبيب
-//   Store.update(id, body) يعدّل طبيب
-//   Store.remove(id)       يحذف طبيب
+// كل جدول إله Store خاص بيه، بنفس الدوال:
+//   init(onChange)   يحمّل البيانات ويستدعي onChange كل ما تتغير
+//   add(body)        يضيف سجل
+//   update(id, body) يعدّل سجل
+//   remove(id)       يحذف سجل
 // وضعين: "supabase" إذا المفاتيح موجودة بـ config.js، و "local" إذا فارغة.
 
-const Store = (() => {
-  const TABLE = "doctors";
-  const LOCAL_KEY = "survey-doctors-v1";
+let _sbClient = null;
+function sbClient() {
+  if (!_sbClient && CONFIG.SUPABASE_URL && CONFIG.SUPABASE_ANON_KEY && window.supabase) {
+    _sbClient = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+  }
+  return _sbClient;
+}
+
+function makeStore({ table, localKey, fields, seed }) {
   let mode = "local";
-  let client = null;
   let notify = () => {};
 
-  // تحويل صف قاعدة البيانات لشكل الواجهة (updated_at ← updatedAt)
-  const fromRow = r => ({
-    id: String(r.id), name: r.name || "", spec: r.spec || "", cls: r.cls || "",
-    ph: r.ph || "", area: r.area || "", note: r.note || "", updatedAt: r.updated_at || "",
-  });
-  const toRow = b => ({
-    name: b.name, spec: b.spec, cls: b.cls, ph: b.ph || null,
-    area: b.area, note: b.note || null, updated_at: b.updatedAt || new Date().toISOString(),
-  });
+  // صف قاعدة البيانات ← شكل الواجهة (updated_at ← updatedAt)
+  const fromRow = r => {
+    const o = { id: String(r.id), updatedAt: r.updated_at || "" };
+    fields.forEach(f => (o[f] = r[f] ?? ""));
+    return o;
+  };
+  // شكل الواجهة ← صف قاعدة البيانات (النص الفارغ يصير null)
+  const toRow = b => {
+    const o = { updated_at: b.updatedAt || new Date().toISOString() };
+    fields.forEach(f => (o[f] = b[f] === "" || b[f] == null ? null : b[f]));
+    return o;
+  };
 
-  // ---------- Supabase ----------
   async function loadRemote() {
-    const { data, error } = await client.from(TABLE).select("*").order("name").limit(5000);
+    const { data, error } = await sbClient().from(table).select("*").order("name").limit(5000);
     if (error) throw error;
     notify(data.map(fromRow));
   }
-
-  // ---------- محلي (localStorage) ----------
   function readLocal() {
     try {
-      const saved = JSON.parse(localStorage.getItem(LOCAL_KEY) || "null");
+      const saved = JSON.parse(localStorage.getItem(localKey) || "null");
       if (Array.isArray(saved)) return saved;
     } catch (e) {}
-    // أول مرة: نبدي من بيانات السيرفي
-    const rows = (typeof SEED !== "undefined" ? SEED : []).map((r, i) => ({
-      id: "s" + (i + 1), name: r[0], spec: r[1], cls: r[2], ph: r[3], area: r[4], note: r[5] || "", updatedAt: "",
-    }));
+    const rows = seed ? seed() : [];
     writeLocal(rows);
     return rows;
   }
   function writeLocal(rows) {
-    try { localStorage.setItem(LOCAL_KEY, JSON.stringify(rows)); } catch (e) {}
+    try { localStorage.setItem(localKey, JSON.stringify(rows)); } catch (e) {}
   }
 
   return {
@@ -52,25 +54,18 @@ const Store = (() => {
 
     async init(onChange) {
       notify = onChange;
-      const ready = CONFIG.SUPABASE_URL && CONFIG.SUPABASE_ANON_KEY && window.supabase;
-      if (!ready) {
-        mode = "local";
-        notify(readLocal());
-        return mode;
-      }
+      if (!sbClient()) { mode = "local"; notify(readLocal()); return mode; }
       mode = "supabase";
-      client = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
       await loadRemote();
       // Realtime: أي تعديل من جهاز ثاني يحدّث القائمة هنا
-      client.channel("doctors-live")
-        .on("postgres_changes", { event: "*", schema: "public", table: TABLE }, () => loadRemote().catch(console.error))
+      sbClient().channel(table + "-live")
+        .on("postgres_changes", { event: "*", schema: "public", table }, () => loadRemote().catch(console.error))
         .subscribe();
       return mode;
     },
-
     async add(body) {
       if (mode === "supabase") {
-        const { error } = await client.from(TABLE).insert(toRow(body));
+        const { error } = await sbClient().from(table).insert(toRow(body));
         if (error) throw error;
         return loadRemote();
       }
@@ -78,20 +73,18 @@ const Store = (() => {
       rows.push({ ...body, id: "l" + Date.now().toString(36) });
       writeLocal(rows); notify(rows);
     },
-
     async update(id, body) {
       if (mode === "supabase") {
-        const { error } = await client.from(TABLE).update(toRow(body)).eq("id", id);
+        const { error } = await sbClient().from(table).update(toRow(body)).eq("id", id);
         if (error) throw error;
         return loadRemote();
       }
       const rows = readLocal().map(r => (r.id === id ? { ...body, id } : r));
       writeLocal(rows); notify(rows);
     },
-
     async remove(id) {
       if (mode === "supabase") {
-        const { error } = await client.from(TABLE).delete().eq("id", id);
+        const { error } = await sbClient().from(table).delete().eq("id", id);
         if (error) throw error;
         return loadRemote();
       }
@@ -99,4 +92,21 @@ const Store = (() => {
       writeLocal(rows); notify(rows);
     },
   };
-})();
+}
+
+// الأطباء
+const Store = makeStore({
+  table: "doctors",
+  localKey: "survey-doctors-v1",
+  fields: ["name", "spec", "cls", "ph", "area", "note"],
+  seed: () => (typeof SEED !== "undefined" ? SEED : []).map((r, i) => ({
+    id: "s" + (i + 1), name: r[0], spec: r[1], cls: r[2], ph: r[3], area: r[4], note: r[5] || "", updatedAt: "",
+  })),
+});
+
+// الصيدليات
+const PharmStore = makeStore({
+  table: "pharmacies",
+  localKey: "survey-pharmacies-v1",
+  fields: ["name", "complex", "cls", "address", "area", "manager", "phone", "note"],
+});

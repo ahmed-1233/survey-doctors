@@ -81,8 +81,11 @@ function render(){
   store.set("dr-q",$("q").value);
 
   const total=DATA.length,a=DATA.filter(d=>d.cls==="A").length;
+  if($("tcDoc")) $("tcDoc").textContent=loaded?total:"";
+  if(window.ACTIVE_TAB!=="ph"){
   $("stats").innerHTML=loaded?[[total,"طبيب"],[a,"الفئة A"],[SPECS.length,"تخصصات"],[AREAS.length,"مناطق"]].map(([n,l])=>`<div class="stat"><b>${n}</b><span>${l}</span></div>`).join(""):"";
   $("addBtn").hidden=!(loaded&&canWrite);
+  }
   $("hint").textContent=loaded&&canWrite?"اضغط على أي طبيب لتعديل بياناته":"";
 
   if(unavailable){
@@ -150,7 +153,7 @@ function openSheet(d){
   setTimeout(()=>$("f-name").focus(),30);
 }
 function closeSheet(){sheet.close();editing=null;}
-$("addBtn").onclick=()=>openSheet(null);
+$("addBtn").onclick=()=>{ if(window.ACTIVE_TAB==="ph") return Pharm.openSheet(null); openSheet(null); };
 $("close").onclick=closeSheet;$("cancel").onclick=closeSheet;
 sheet.addEventListener("click",e=>{if(e.target===sheet)closeSheet();});
 $("c-spec").addEventListener("click",e=>{const b=e.target.closest("button");if(b){$("f-spec").value=b.textContent;setErr("spec");}});
@@ -205,6 +208,7 @@ canWrite=true;
 Store.init(rows=>{
   DATA=rows.filter(d=>d.name);
   loaded=true;rebuild();render();
+  if(typeof Pharm!=="undefined") Pharm.render(); // عدد الأطباء لكل صيدلية
 }).then(mode=>{
   if(mode==="local") console.info("البيانات محفوظة على هذا المتصفح فقط. أضف مفاتيح Supabase في js/config.js لمشاركتها.");
 }).catch(err=>{
